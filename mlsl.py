@@ -1,28 +1,32 @@
 import lstm
 import numpy as np
 import random
+from json_plus import Serializable
 
-class MLSL:
+
+class MLSL(Serializable):
     def __init__(self, max_depth, hidden_layer_sizes, input_sizes,
                  learning_rate_vector, learning_method_vector,
-                 adadelta_parameters=None):
-        self.lstm_stack = [lstm.LSTM() for l in range(max_depth)]
+                 adadelta_parameters=None,
+                 momentum_vector=None):
+        self.lstm_stack = [lstm.LSTM() for _ in range(max_depth)]
         for l in range(max_depth):
             self.lstm_stack[l].initialize(input_sizes[l] + (0 if l== max_depth -1 else hidden_layer_sizes[l + 1]), hidden_layer_sizes[l])
         self.hidden_layer_sizes = hidden_layer_sizes
         self.input_sizes = input_sizes
         # we need the following structures, when training with momentum and/or adadelta to keep track of the sum of dW at each level
         # in order to update the momentum_dW or the adadelta parameters of the respective LSTM modules
-        self.number_of_nodes_per_level = [0 for l in range(max_depth)]
-        self.sum_of_dWs = [0.0 for l in range(max_depth)]
-        self.sum_tot_sq_gradient =  [0.0 for l in range(max_depth)]
-        self.sum_tot_gradient_weight = [0.0 for l in range(max_depth)]
-        self.sum_tot_sq_delta = [0.0 for l in range(max_depth)]
-        self.sum_tot_delta_weight = [0.0 for l in range(max_depth)]
+        self.number_of_nodes_per_level = [0 for _ in range(max_depth)]
+        self.sum_of_dWs = [0.0 for _ in range(max_depth)]
+        self.sum_tot_sq_gradient =  [0.0 for _ in range(max_depth)]
+        self.sum_tot_gradient_weight = [0.0 for _ in range(max_depth)]
+        self.sum_tot_sq_delta = [0.0 for _ in range(max_depth)]
+        self.sum_tot_delta_weight = [0.0 for _ in range(max_depth)]
         self.max_depth = max_depth
         self.learning_rate_vector = learning_rate_vector
         self.learning_method_vector = learning_method_vector
         self.adadelta_parameters=adadelta_parameters
+        self.momentum_vector=momentum_vector
 
     def forward_instance(self, instance_node, current_depth, sequence_function = ["none","none","none"]):
         """ Forward instance function through the multi layer LSTM architecture"""
@@ -64,8 +68,7 @@ class MLSL:
                                               current_depth + 1)
             counter += 1
 
-    def update_LSTM_weights_steady_rate(self,instance_node, current_depth,
-                                        momentum_vector):
+    def update_LSTM_weights_steady_rate(self,instance_node, current_depth):
         if not instance_node.gradient is None:
             dW = - self.learning_rate_vector[current_depth] * instance_node.gradient
             self.sum_of_dWs[current_depth] += dW
@@ -73,27 +76,23 @@ class MLSL:
         if current_depth == self.max_depth:
             return
         for item in instance_node.children_sequence:
-            self.update_LSTM_weights(item, current_depth + 1,
-                                     momentum_vector)
+            self.update_LSTM_weights(item, current_depth + 1)
 
-    def update_LSTM_weights_with_momentum(self,instance_node, current_depth,
-                                          momentum_vector):
+    def update_LSTM_weights_with_momentum(self,instance_node, current_depth):
         if not instance_node.gradient is None:
             if self.lstm_stack[current_depth].momentum_dW is None: # initialize momentum of LSTM to zero
                 self.lstm_stack[current_depth].momentum_dW = np.zeros(self.lstm_stack[current_depth].WLSTM.shape)
             dW = (- self.learning_rate_vector[current_depth] * instance_node.gradient
-                  + momentum_vector[current_depth] * self.lstm_stack[current_depth].momentum_dW)
+                  + self.momentum_vector[current_depth] * self.lstm_stack[current_depth].momentum_dW)
             self.lstm_stack[current_depth].WLSTM += dW
             self.sum_of_dWs[current_depth] += dW
             self.number_of_nodes_per_level[current_depth] += 1
         if current_depth == self.max_depth:
             return
         for item in instance_node.children_sequence:
-            self.update_LSTM_weights(item, current_depth + 1,
-                                     momentum_vector)
+            self.update_LSTM_weights(item, current_depth + 1)
 
-    def update_LSTM_weights_adadelta(self,instance_node, current_depth,
-                                     momentum_vector):
+    def update_LSTM_weights_adadelta(self,instance_node, current_depth):
         # obtain adadelta parameters
         decay = self.adadelta_parameters[current_depth]["decay"]
         epsilon = self.adadelta_parameters[current_depth]["epsilon"]
@@ -124,43 +123,37 @@ class MLSL:
         if current_depth == self.max_depth:
             return
         for item in instance_node.children_sequence:
-            self.update_LSTM_weights(item, current_depth + 1,
-                                     momentum_vector)
+            self.update_LSTM_weights(item, current_depth + 1)
 
 
-    def update_LSTM_weights(self,instance_node, current_depth,
-                            momentum_vector):
+    def update_LSTM_weights(self,instance_node, current_depth):
         training_methods = ["steady_rate", "momentum", "adadelta"]
         if self.learning_method_vector[current_depth] not in training_methods:
             print "FATAL: unknown training method"
             exit()
         if self.learning_method_vector[current_depth] == "steady_rate":
-            self.update_LSTM_weights_steady_rate(instance_node, current_depth,
-                                                 momentum_vector)
+            self.update_LSTM_weights_steady_rate(instance_node, current_depth)
         if self.learning_method_vector[current_depth] == "momentum":
-            self.update_LSTM_weights_with_momentum(instance_node, current_depth,
-                                                   momentum_vector)
+            self.update_LSTM_weights_with_momentum(instance_node, current_depth)
         if self.learning_method_vector[current_depth] == "adadelta":
-            self.update_LSTM_weights_adadelta(instance_node, current_depth,
-                                              momentum_vector)
+            self.update_LSTM_weights_adadelta(instance_node, current_depth)
 
     """ Stochastic gradient descent with
         a tree unfolding as training instance
     """
-    def sgd_train_mlsl(self, root, target, objective_function,
-                       momentum_vector):
+    def sgd_train_mlsl(self, root, target, objective_function):
         # first pass the instance root one forward so that all internal LSTM states
         # get calculated and stored in "cache" field
-        self.sum_of_dWs = [0.0 for l in range(self.max_depth + 1)] # initializing total dW for each training instance
-        self.number_of_nodes_per_level = [0.0 for l in range(self.max_depth+ 1)]
-        self.sum_tot_sq_gradient =  [0.0 for l in range(self.max_depth + 1)]
-        self.sum_tot_gradient_weight = [0.0 for l in range(self.max_depth + 1)]
-        self.sum_tot_sq_delta = [0.0 for l in range(self.max_depth + 1)]
-        self.sum_tot_delta_weight = [0.0 for l in range(self.max_depth + 1)]
+        self.sum_of_dWs = [0.0 for _ in range(self.max_depth + 1)] # initializing total dW for each training instance
+        self.number_of_nodes_per_level = [0.0 for _ in range(self.max_depth+ 1)]
+        self.sum_tot_sq_gradient =  [0.0 for _ in range(self.max_depth + 1)]
+        self.sum_tot_gradient_weight = [0.0 for _ in range(self.max_depth + 1)]
+        self.sum_tot_sq_delta = [0.0 for _ in range(self.max_depth + 1)]
+        self.sum_tot_delta_weight = [0.0 for _ in range(self.max_depth + 1)]
         Y = self.forward_instance(root, 0)
         deriv = get_objective_derivative(output = Y, target = target, objective = objective_function)
         self.calculate_backward_gradients(root, deriv, 0)
-        self.update_LSTM_weights(root, 0, momentum_vector)
+        self.update_LSTM_weights(root, 0)
         # updating the weights of the LSTM modules and
         # updating momentum_dW of LSTM modules with sums of dWs
         # and the other variables for adadelta
@@ -178,8 +171,7 @@ class MLSL:
     trains MLSL with stochastic gradient descent
     by imposing class balance, i.e. shows equal number of examples of all classes to the network during training
     """
-    def train_model_force_balance(self, training_set, no_of_instances, objective_function,
-                                  momentum_vector = None):
+    def train_model_force_balance(self, training_set, no_of_instances, objective_function):
         counter = 0
         if no_of_instances == 0:
             return
@@ -188,8 +180,7 @@ class MLSL:
                 continue
             target = np.zeros((1,self.hidden_layer_sizes[0]))
             target[0,item.get_label()] = 1.0
-            self.sgd_train_mlsl(item, target, objective_function,
-                                momentum_vector)
+            self.sgd_train_mlsl(item, target, objective_function)
             counter += 1
             if counter % 1000 == 0:
                 print "Training has gone over", counter, " instances.."
@@ -257,7 +248,7 @@ class MLSL:
 # the following class represents nodes of the unfoldings
 # the MLSL module understands and can train and test on tree instances that are encoded as objects of this class
 
-class Instance_node:
+class Instance_node(Serializable):
     def __init__(self, feature_vector = None, label = None, id = None):
         self.id = id
         self.feature_vector = feature_vector
