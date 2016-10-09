@@ -93,7 +93,7 @@ def test_for_multiple_layers(print_graph = False, max_depth = 0, informative_fea
     training_set = instance_list[0:2000]
     test_set = instance_list[2000:3000]
     print "Training starts for ", max_depth + 1, " levels"
-    mlsl_module.train_model_force_balance(training_set, no_of_instances = 50000,
+    mlsl_module.train_model_force_balance(training_set, num_instances= 50000,
                                           max_depth= max_depth, objective_function= OBJECTIVE_FUNCTION,
                                           learning_rate_vector= LEARNING_RATE_VECTOR, learning_method_vector = LEARNING_METHOD_VECTOR,
                                           momentum_vector= MOMENTUM_VECTOR, adadelta_parameters = ADADELTA_VECTOR)
