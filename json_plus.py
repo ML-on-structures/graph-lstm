@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # Copyright 2014 Camiolog Inc.
-# BSD license.
+# Authors: Luca de Alfaro and Massimo Di Pierro
 
 import base64
 import datetime

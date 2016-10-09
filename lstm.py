@@ -1,9 +1,12 @@
 """
-Authors: Luca de Alfaro
-This code is derived from a body of code
-From https://gist.github.com/karpathy/587454dc0146a6ae21fc (MIT license)
-This is a batched LSTM forward and backward pass
-Modified by Luca de Alfaro, 2015.
+This code is based on
+https://gist.github.com/karpathy/587454dc0146a6ae21fc
+by Andrej Karpathy.
+Luca de Alfaro <luca@dealfaro.com> modified the code to make the
+LSTM into objects that can be serialized, and added the learning
+methods based on gradient descent with momentum, and adadelta.
+Vassilis Polychronopoulos and Rakshit Agrawal then added methods
+that facilitate the use of the code for multi-level LSTMs.
 """
 
 import numpy as np
