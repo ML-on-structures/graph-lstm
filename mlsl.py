@@ -51,21 +51,24 @@ class MLSL(Serializable):
     def forward_instance(self, instance_node, instance_depth):
         """Performs forward propagation through the multi-level LSTM structure.
          The node instance_node at depth instance_depth is propagated."""
-        if instance_node.get_number_of_children() == 0:
-            return -100 * np.ones(self.hidden_layer_sizes[instance_depth]) # no children signifier vector
         input_sequence = np.array([])
         children_sequence = list(instance_node.get_children())
+        if len(children_sequence) == 0:
+            # FIXME We should really have a feature that describes the number of children.
+            # This loses any data that might be associated with the node itself.
+            return -100 * np.ones(self.hidden_layer_sizes[instance_depth]) # no children signifier vector
         if instance_depth in self.shuffle_levels:
+            # Shuffles children order if required.
             random.shuffle(children_sequence)
-        for item in children_sequence:
-            feature_vector = item.get_feature_vector()
+        for child_node in children_sequence:
+            child_node_feature_vector = child_node.get_feature_vector()
             """ If we are not at the very bottom we need to get input from LSTM at the next level"""
             LSTM_output_from_below = np.array([])
             if instance_depth < self.max_depth:
-                 LSTM_output_from_below = self.forward_instance(item, instance_depth + 1).reshape(
+                 LSTM_output_from_below = self.forward_instance(child_node, instance_depth + 1).reshape(
                      self.hidden_layer_sizes[instance_depth + 1]) # recursive call
             # concatenate feature vector and input from LSTM output below
-            full_feature_vector = np.concatenate((LSTM_output_from_below, feature_vector))
+            full_feature_vector = np.concatenate((LSTM_output_from_below, child_node_feature_vector))
             # concatenate current feature vector to input sequence for the LSTM
             input_sequence = np.concatenate((input_sequence,full_feature_vector))
         # forward the input sequence to this depth's LSTM
