@@ -1,9 +1,9 @@
 """
+Authors: Luca de Alfaro
+This code is derived from a body of code
 From https://gist.github.com/karpathy/587454dc0146a6ae21fc (MIT license)
 This is a batched LSTM forward and backward pass
 Modified by Luca de Alfaro, 2015.
-
-
 """
 
 import numpy as np
