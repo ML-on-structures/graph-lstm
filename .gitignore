@@ -1,0 +1,8 @@
+*.pyc
+*~
+*.bak
+
+## Added for PyCharm
+*.iml
+.idea/
+
