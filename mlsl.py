@@ -102,7 +102,7 @@ class MLSL(Serializable):
             random.shuffle(children_sequence)
         for child_node in children_sequence:
             child_node_feature_vector = child_node.get_feature_vector()
-            assert len(child_node_feature_vector) = self.node_feature_sizes[instance_depth + 1]
+            assert len(child_node_feature_vector) == self.node_feature_sizes[instance_depth + 1]
             # If we are not at the very bottom we need to get input from LSTM at the next level.
             LSTM_output_from_below = np.array([])
             if instance_depth < self.max_depth:
