@@ -6,27 +6,67 @@ from json_plus import Serializable
 
 class MLSL(Serializable):
 
-    def __init__(self, max_depth, hidden_layer_sizes, input_sizes,
+    def __init__(self, max_depth, output_sizes, node_feature_sizes,
                  learning_rate_vector, learning_method_vector,
                  shuffle_levels=[],
                  adadelta_parameters=None,
                  momentum_vector=None):
         """Initializes a multi-level LSTM.
+        The ML-LSTM has max_depth layers.  Layer 0 is the root node.
+        Layers max_depth - 1 to 0 have LSTMs in them.
+        Layer max_depth is simply composed of graph nodes, which forward their
+        features to the LSTMs of level max_depth - 1.
+        The output of level i consists in the LSTM features computed from the children of i.
+        It does NOT contain any features computed from the node at level i itself.
+        The features of the node at level i will be passed to node at level i-1 along
+        with the LSTM output.
+        For this reason, this multi-level LSTM SHOULD be coupled with a top-level NN that takes
+        the output of the root node, and the features of the root node itself.
+        See the helper class MLSLNN for this.
+
+        @param max_depth: As noted above.
+        @param node_feature_sizes: How many features are produced by a node, according to its depth.
+            This can go from 0 to max_depth (included).  Be careful: unless e.g. the graph is
+            bipartite, you need to use the same number throughout.
+        @param output_sizes: How many features are produced by LSTMs at different depth.  This
+            does not need to be constant.
+        @param learning_rate_vector: Vector of learning rates.
+        @param learning_method_vector: Vector of learning methods. It can be None, in which case
+            adadelta is used, or it can be a vector consisting of 'adadelta' or 'momentum' for each
+            layer.
+        @param momentum_vector: vector containing momentums for learning.  It can be None if
+            adadelta is used.
+        @param adadelta_parameters: vector of adadelta parameters.  It can be None if momentum
+            learning is used.
         @param shuffle_children: a list (or set) of depths at which shuffling is to occur.
         """
-        self.lstm_stack = [lstm.LSTM() for _ in range(max_depth)]
-        for l in range(max_depth):
-            self.lstm_stack[l].initialize(
-                input_sizes[l] + (0 if l== max_depth -1 else hidden_layer_sizes[l + 1]),
-                hidden_layer_sizes[l])
-        self.hidden_layer_sizes = hidden_layer_sizes
-        self.input_sizes = input_sizes
+        # First, some sanity checks.
+        assert max_depth > 0
+        assert len(output_sizes) == max_depth
+        assert len(node_feature_sizes) == max_depth + 1
+        assert len(learning_method_vector) == max_depth
+        assert adadelta_parameters is None or len(adadelta_parameters) == max_depth
+        assert adadelta_parameters is not None or all(m == 'momentum' for m in learning_method_vector)
+        assert momentum_vector is None or len(momentum_vector) == max_depth
+        assert momentum_vector is not None or all(m == 'adadelta' for m in learning_method_vector)
+        assert [i < max_depth for i in shuffle_levels]
+
+        self.output_sizes = output_sizes
+        self.node_feature_sizes = node_feature_sizes
         self.max_depth = max_depth
         self.learning_rate_vector = learning_rate_vector
         self.learning_method_vector = learning_method_vector
-        self.adadelta_parameters=adadelta_parameters
-        self.momentum_vector=momentum_vector
+        self.adadelta_parameters = adadelta_parameters
+        self.momentum_vector = momentum_vector
         self.shuffle_levels = shuffle_levels
+
+        # Creates the list of LSTMs, one per level.
+        self.lstm_stack = [lstm.LSTM() for _ in range(max_depth)]
+        for l in range(max_depth):
+            self.lstm_stack[l].initialize(
+                node_feature_sizes[l + 1] + (0 if l == max_depth - 1 else output_sizes[l + 1]),
+                output_sizes[l])
+
         # we need the following structures, when training with momentum and/or adadelta,
         # to keep track of the sum of dW at each level in order to update the momentum_dW
         # or the adadelta parameters of the respective LSTM modules.
@@ -41,11 +81,11 @@ class MLSL(Serializable):
     def _reset_learning_parameters(self):
         """This function should be called before any learning step."""
         self.number_of_nodes_per_level = [0 for _ in range(self.max_depth + 1)]
-        self.sum_of_dWs = [0.0 for _ in range(self.max_depth + 1)]
-        self.sum_tot_sq_gradient =  [0.0 for _ in range(self.max_depth + 1)]
-        self.sum_tot_gradient_weight = [0.0 for _ in range(self.max_depth + 1)]
-        self.sum_tot_sq_delta = [0.0 for _ in range(self.max_depth + 1)]
-        self.sum_tot_delta_weight = [0.0 for _ in range(self.max_depth + 1)]
+        self.sum_of_dWs = [0.0 for _ in range(self.max_depth)]
+        self.sum_tot_sq_gradient =  [0.0 for _ in range(self.max_depth)]
+        self.sum_tot_gradient_weight = [0.0 for _ in range(self.max_depth)]
+        self.sum_tot_sq_delta = [0.0 for _ in range(self.max_depth)]
+        self.sum_tot_delta_weight = [0.0 for _ in range(self.max_depth)]
 
 
     def forward_instance(self, instance_node, instance_depth):
@@ -56,23 +96,24 @@ class MLSL(Serializable):
         if len(children_sequence) == 0:
             # FIXME We should really have a feature that describes the number of children.
             # This loses any data that might be associated with the node itself.
-            return -100 * np.ones(self.hidden_layer_sizes[instance_depth]) # no children signifier vector
+            return -100 * np.ones(self.output_sizes[instance_depth]) # no children signifier vector
         if instance_depth in self.shuffle_levels:
             # Shuffles children order if required.
             random.shuffle(children_sequence)
         for child_node in children_sequence:
             child_node_feature_vector = child_node.get_feature_vector()
-            """ If we are not at the very bottom we need to get input from LSTM at the next level"""
+            assert len(child_node_feature_vector) = self.node_feature_sizes[instance_depth + 1]
+            # If we are not at the very bottom we need to get input from LSTM at the next level.
             LSTM_output_from_below = np.array([])
             if instance_depth < self.max_depth:
                  LSTM_output_from_below = self.forward_instance(child_node, instance_depth + 1).reshape(
-                     self.hidden_layer_sizes[instance_depth + 1]) # recursive call
+                     self.output_sizes[instance_depth + 1]) # recursive call
             # concatenate feature vector and input from LSTM output below
             full_feature_vector = np.concatenate((LSTM_output_from_below, child_node_feature_vector))
             # concatenate current feature vector to input sequence for the LSTM
             input_sequence = np.concatenate((input_sequence,full_feature_vector))
         # forward the input sequence to this depth's LSTM
-        input_sequence = input_sequence.reshape(instance_node.get_number_of_children(), 1, len(full_feature_vector))
+        input_sequence = input_sequence.reshape(len(children_sequence), 1, len(full_feature_vector))
         _, _, Y, cache = self.lstm_stack[instance_depth]._forward(input_sequence)
         instance_node.cache = cache
         # we also need to save the sequence
@@ -91,7 +132,7 @@ class MLSL(Serializable):
             if item.cache is None:
                 continue
             self.calculate_backward_gradients(item,
-                                              dX[counter,:,0:self.hidden_layer_sizes[current_depth + 1]],
+                                              dX[counter, :, 0:self.output_sizes[current_depth + 1]],
                                               current_depth + 1)
             counter += 1
 
@@ -197,10 +238,10 @@ class MLSL(Serializable):
         counter = 0
         if num_instances == 0:
             return
-        for item in get_balanced_training_set(training_set, self.hidden_layer_sizes[0]):
+        for item in get_balanced_training_set(training_set, self.output_sizes[0]):
             if item.get_number_of_children() == 0:
                 continue
-            target = np.zeros((1,self.hidden_layer_sizes[0]))
+            target = np.zeros((1,self.output_sizes[0]))
             target[0,item.get_label()] = 1.0
             self.sgd_train_mlsl(item, target, objective_function)
             counter += 1
