@@ -72,8 +72,9 @@ class Serializable(object):
     def to_json(self, pack_ndarray=True, tolerant=True, indent=2):
         return Serializable.dumps(self, pack_ndarray=pack_ndarray, tolerant=tolerant, indent=indent)
 
-    def dump(self, fp, pack_ndarray=True, tolerant=True, indent=2):
-        return fp.write(Serializable.dumps(self, pack_ndarray=pack_ndarray, tolerant=tolerant, indent=indent))
+    @staticmethod
+    def dump(obj, fp, pack_ndarray=True, tolerant=True, indent=2):
+        return fp.write(Serializable.dumps(obj, pack_ndarray=pack_ndarray, tolerant=tolerant, indent=indent))
 
     @staticmethod
     def dumps(obj, pack_ndarray=True, tolerant=True, indent=2):
