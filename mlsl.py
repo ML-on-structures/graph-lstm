@@ -32,8 +32,8 @@ class MLSL(Serializable):
             does not need to be constant.
         @param learning_rate_vector: Vector of learning rates.
         @param learning_method_vector: Vector of learning methods. It can be None, in which case
-            adadelta is used, or it can be a vector consisting of 'adadelta' or 'momentum' for each
-            layer.
+            adadelta is used, or it can be a vector consisting of 'adadelta' or 'momentum'
+            or 'steady_rate' (the latter is not recommended) for each layer.
         @param momentum_vector: vector containing momentums for learning.  It can be None if
             adadelta is used.
         @param adadelta_parameters: vector of adadelta parameters.  It can be None if momentum
@@ -46,9 +46,9 @@ class MLSL(Serializable):
         assert len(node_feature_sizes) == max_depth + 1
         assert len(learning_method_vector) == max_depth
         assert adadelta_parameters is None or len(adadelta_parameters) == max_depth
-        assert adadelta_parameters is not None or all(m == 'momentum' for m in learning_method_vector)
+        assert adadelta_parameters is not None or all(m != 'adadelta' for m in learning_method_vector)
         assert momentum_vector is None or len(momentum_vector) == max_depth
-        assert momentum_vector is not None or all(m == 'adadelta' for m in learning_method_vector)
+        assert momentum_vector is not None or all(m != 'steady_rate' for m in learning_method_vector)
         assert [i < max_depth for i in shuffle_levels]
 
         self.output_sizes = output_sizes
@@ -115,10 +115,11 @@ class MLSL(Serializable):
         # forward the input sequence to this depth's LSTM
         input_sequence = input_sequence.reshape(len(children_sequence), 1, len(full_feature_vector))
         _, _, Y, cache = self.lstm_stack[instance_depth]._forward(input_sequence)
+        # We store the state of the LSTM, so we can use it for back-propagation.
         instance_node.cache = cache
-        # we also need to save the sequence
+        # we also need to save the sequence in the same order we used it.
         instance_node.children_sequence = children_sequence
-        return softmax(Y)
+        return Y
 
 
     def calculate_backward_gradients(self, instance_node, derivative, current_depth):
@@ -136,6 +137,7 @@ class MLSL(Serializable):
                                               current_depth + 1)
             counter += 1
 
+
     def update_LSTM_weights_steady_rate(self, instance_node, current_depth):
         if not instance_node.gradient is None:
             dW = - self.learning_rate_vector[current_depth] * instance_node.gradient
@@ -145,6 +147,7 @@ class MLSL(Serializable):
             return
         for item in instance_node.children_sequence:
             self.update_LSTM_weights(item, current_depth + 1)
+
 
     def update_LSTM_weights_with_momentum(self, instance_node, current_depth):
         if not instance_node.gradient is None:
@@ -159,6 +162,7 @@ class MLSL(Serializable):
             return
         for item in instance_node.children_sequence:
             self.update_LSTM_weights(item, current_depth + 1)
+
 
     def update_LSTM_weights_adadelta(self, instance_node, current_depth):
         # obtain adadelta parameters
@@ -206,10 +210,14 @@ class MLSL(Serializable):
         if self.learning_method_vector[current_depth] == "adadelta":
             self.update_LSTM_weights_adadelta(instance_node, current_depth)
 
-    """ Stochastic gradient descent with
-        a tree unfolding as training instance
-    """
+
+    # FIXME: I would here have the training as a function of the input loss.
+    # Then I would have a wrapper class that uses an NN in order to merge in
+    # features of the target node (if any), and THAT uses softmax e.g. for classification
+    # and backpropagates the loss.
     def sgd_train_mlsl(self, instance_node, target, objective_function):
+        """ Stochastic gradient descent with a tree unfolding as training instance
+        """
         self._reset_learning_parameters()
         # first pass the instance root one forward so that all internal LSTM states
         # get calculated and stored in "cache" field
@@ -230,11 +238,13 @@ class MLSL(Serializable):
             self.lstm_stack[d].tot_delta_weight = self.sum_tot_delta_weight[d] / self.number_of_nodes_per_level[d]
             self.lstm_stack[d].tot_sq_delta = self.sum_tot_sq_delta[d] / self.number_of_nodes_per_level[d]
 
-    """
-    trains MLSL with stochastic gradient descent
-    by imposing class balance, i.e. shows equal number of examples of all classes to the network during training
-    """
+
+    # FIXME: I think this belongs in a helper class that applies the above to graphs.
     def train_model_force_balance(self, training_set, num_instances, objective_function):
+        """
+        trains MLSL with stochastic gradient descent
+        by imposing class balance, i.e. shows equal number of examples of all classes to the network during training
+        """
         counter = 0
         if num_instances == 0:
             return
@@ -250,6 +260,7 @@ class MLSL(Serializable):
             if counter == num_instances:
                 break
 
+    # FIXME: Move this to a unit test? 
     def test_model(self, test_set):
         guesses = 0
         hits = 0
@@ -368,7 +379,6 @@ def softmax(w, t = 1.0):
     e = np.exp(np.array(w) / t)
     dist = e / np.sum(e)
     return dist
-
 
 def get_objective_derivative(output, target, objective):
     if objective == "softmax_classification":

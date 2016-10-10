@@ -69,6 +69,12 @@ class LSTM(Serializable):
 
     def _forward(self, X, c0=None, h0=None):
         """
+        Forward-propagates the input X.
+        The output consists in the vector of all outputs for all time steps,
+        the final value of the memories, the output of the LSTM at the final step,
+        and a cache that contains the whole useful state of the LSTM, so that it can be
+        used later for back-propagation.
+        The cache value is also stored in the LSTM.
         X should be of shape (n,b,input_size), where n = length of sequence, b = batch size
         """
         n, b, isz = X.shape
