@@ -70,7 +70,7 @@ class MLSLNN(Serializable):
         if self.use_softmax:
             return output - target
         else:
-            raise AssertionError
+            raise ValueError
 
 
     def backward(self, loss_deriv, instance_node):
@@ -98,4 +98,5 @@ class MLSLNN(Serializable):
 
 
     def run_through_the_model(self, instance_node, target, additional_input_to_nn):
+        self.mlsl._reset_learning_parameters()
         return self.backward(self.get(self.forward(instance_node, additional_input_to_nn), target), instance_node)
