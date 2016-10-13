@@ -73,6 +73,10 @@ class Serializable(object):
         return Serializable.dumps(self, pack_ndarray=pack_ndarray, tolerant=tolerant, indent=indent)
 
     @staticmethod
+    def dump(obj, fp, pack_ndarray=True, tolerant=True, indent=2):
+        return fp.write(Serializable.dumps(obj, pack_ndarray=pack_ndarray, tolerant=tolerant, indent=indent))
+
+    @staticmethod
     def dumps(obj, pack_ndarray=True, tolerant=True, indent=2):
         def custom(o):
             if isinstance(o, Serializable):
@@ -236,6 +240,11 @@ class Serializable(object):
     @staticmethod
     def loads(s):
         return Serializable.from_json(s)
+
+    @staticmethod
+    def load(fp):
+        return Serializable.loads(fp.read())
+
 
 loads = Serializable.loads
 dumps = Serializable.dumps
