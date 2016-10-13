@@ -260,7 +260,7 @@ class MLSL(Serializable):
             if counter == num_instances:
                 break
 
-    # FIXME: Move this to a unit test? 
+    # FIXME: Move this to a unit test?
     def test_model(self, test_set):
         guesses = 0
         hits = 0
