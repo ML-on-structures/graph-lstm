@@ -1,7 +1,7 @@
 import lstm
 import numpy as np
 import random
-from json_plus import Serializable
+from json_plus import Serializable, Storage
 import unittest
 
 class UnknownLearningMethod(Exception):
@@ -112,7 +112,7 @@ class MLSL(Serializable):
         input_sequence = input_sequence.reshape(len(children_sequence), 1, len(full_feature_vector))
         _, _, Y, cache = self.lstm_stack[instance_depth]._forward(input_sequence)
         # We store the state of the LSTM, so we can use it for back-propagation.
-        instance_node.cache = cache
+        instance_node.cache.lstm_cache = cache
         # we also need to save the sequence in the same order we used it.
         instance_node.children_sequence = children_sequence
         return Y
@@ -144,18 +144,22 @@ class MLSL(Serializable):
 
     def _compute_backward_gradients(self, instance_node, derivative, instance_depth):
         """Recursive function to compute the backward gradients at all levels
-        of the MLSL.  The gradients are left in instance_node.gradient."""
+        of the MLSL.  The gradients are left in instance_node.cache.weight_gradient."""
         dX, g, _, _ = self.lstm_stack[instance_depth].backward_return_vector_no_update(
-            d = derivative, cache = instance_node.cache)
-        instance_node.gradient = g
+            d = derivative, cache = instance_node.cache.lstm_cache)
+        instance_node.cache.weight_gradient = g
         if instance_depth == self.max_depth:
             return
         for idx, item in enumerate(instance_node.children_sequence):
             if item.cache is None:
                 continue
-            self._compute_backward_gradients(item,
-                                              dX[idx, :, 0:self.output_sizes[instance_depth + 1]],
-                                             instance_depth + 1)
+            input_derivatives = dX[idx, :, 0:self.output_sizes[instance_depth + 1]]
+            if instance_depth < self.max_depth:
+                feature_derivatives = dX[idx, :, self.output_sizes[instance_depth + 1]:]
+            else:
+                feature_derivatives = dX[idx, :, :]
+            instance_node.children_sequence[idx].gradient = feature_derivatives
+            self._compute_backward_gradients(item, input_derivatives, instance_depth + 1)
 
 
     def _compute_LSTM_updates(self, instance_node, current_depth):
@@ -180,18 +184,18 @@ class MLSL(Serializable):
 
     def _compute_update_LSTM_weights_steady_rate(self, instance_node, current_depth):
         """Computes the LSTM weight update at steady rate."""
-        if not instance_node.gradient is None:
-            dW = - self.learning_rate_vector[current_depth] * instance_node.gradient
+        if instance_node.cache is not None:
+            dW = - self.learning_rate_vector[current_depth] * instance_node.cache.weight_gradient
             self.sum_of_dWs[current_depth] += dW
             self.number_of_nodes_per_level[current_depth] += 1
 
 
     def _compute_update_LSTM_weights_with_momentum(self, instance_node, current_depth):
         """Computes the LSTM weight update using momentum."""
-        if not instance_node.gradient is None:
+        if instance_node.cache is not None:
             if self.lstm_stack[current_depth].momentum_dW is None: # initialize momentum of LSTM to zero
                 self.lstm_stack[current_depth].momentum_dW = np.zeros(self.lstm_stack[current_depth].WLSTM.shape)
-            dW = (- self.learning_rate_vector[current_depth] * instance_node.gradient
+            dW = (- self.learning_rate_vector[current_depth] * instance_node.cache.weight_gradient
                   + self.momentum_vector[current_depth] * self.lstm_stack[current_depth].momentum_dW)
             self.lstm_stack[current_depth].WLSTM += dW
             self.sum_of_dWs[current_depth] += dW
@@ -205,9 +209,9 @@ class MLSL(Serializable):
         epsilon = self.adadelta_parameters[current_depth]["epsilon"]
         learning_factor = self.adadelta_parameters[current_depth]["learning_factor"]
         # do the adadelta updates
-        if not instance_node.gradient is None:
+        if instance_node.cache is not None:
             instance_node.tot_sq_gradient = (self.lstm_stack[current_depth].tot_sq_gradient * decay
-                                             + np.sum(np.square(instance_node.gradient)))
+                                             + np.sum(np.square(instance_node.cache.weight_gradient)))
             instance_node.tot_gradient_weight = self.lstm_stack[current_depth].tot_gradient_weight * decay + 1.0
             # Computes the speed.
             rms_delta = np.sqrt((self.lstm_stack[current_depth].tot_sq_delta + epsilon)
@@ -216,7 +220,7 @@ class MLSL(Serializable):
                                    / (instance_node.tot_gradient_weight + epsilon))
             s = rms_delta / rms_gradient
             # Computes the delta.
-            delta = s * instance_node.gradient
+            delta = s * instance_node.cache.weight_gradient
             instance_node.tot_sq_delta = self.lstm_stack[current_depth].tot_sq_delta * decay + np.sum(np.square(delta))
             instance_node.tot_delta_weight = self.lstm_stack[current_depth].tot_delta_weight * decay + 1.0
             # Finally, updates the weights.
@@ -245,24 +249,22 @@ class MLSL(Serializable):
 # the MLSL module understands and can train and test on tree instances that are encoded as objects of this class
 
 class InstanceNode(Serializable):
-    """In order to use an MLSL, we need to pass to it a tree (tree, NOT dag) of these
-    InstanceNode.  At the end of the processing, the gradient attribute of each node
-    will contain the backpropagation of the loss derivative to the feature vector of the node itself."""
+    """In order to use an MLSL, we need to pass to it a tree (tree, NOT dag)
+    of these InstanceNode.
+    At the end of the processing, the gradient attribute of each node
+    will contain the backpropagation of the loss derivative to the feature
+    vector of the node itself."""
     def __init__(self, feature_vector = None, label = None, id = None):
         self.id = id
         self.feature_vector = feature_vector
         self.label = label
-        self.cache = None
         self.children = []
         self.children_sequence = [] # Stores the specific order by which the items were fed into the LSTM to update weights correctly
         # The gradient backpropagated at this node will be left here.
         # It can be used for further back-propagation as needed.
         self.gradient = None
-        # momentum variable for the momentum method
-        self.momentum = None
-        # variables for the adadelta method
-        self.tot_gradient_weight, self.tot_delta_weight = 0, 0
-        self.tot_sq_gradient, self.tot_sq_delta = 0, 0
+        # Here we store intermediate values useful for the processing.
+        self.cache = Storage()
 
     def set_label(self, label):
         self.label = label
