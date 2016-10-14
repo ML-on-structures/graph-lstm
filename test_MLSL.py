@@ -71,7 +71,7 @@ def test_for_multiple_layers(print_graph = False, max_depth = 0, informative_fea
     instance_list = []
     counter = 0
     for i in itemList:
-        new_root = ml.Instance_node(label = i.inherent)
+        new_root = ml.InstanceNode(label = i.inherent)
         build_unfolding(0, max_depth, i, new_root, informative_features)
         new_root.set_label(i.inherent)
         instance_list.append(new_root)
@@ -112,7 +112,7 @@ def build_unfolding(current_depth, max_depth, bipartite_node, tree_node, informa
         extra_feature = bipartite_node.reviews[c].extra_informative_feature / 1000.0
         if number_of_features == 12:
             feature_vector[11] = extra_feature if current_depth < 2 else parent_user_informative_feature
-        child_node = ml.Instance_node(feature_vector = feature_vector.copy())
+        child_node = ml.InstanceNode(feature_vector = feature_vector.copy())
         if current_depth < max_depth:
             build_unfolding(current_depth + 1, max_depth, bipartite_node = c, tree_node= child_node, informative_features = informative_features,
                             parent_user_informative_feature = honesty if current_depth == 0 else parent_user_informative_feature)
