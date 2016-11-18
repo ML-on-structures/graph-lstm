@@ -4,9 +4,16 @@ a Neural Network sitting on top of it.
 The neural network, for each of its entry,
 takes in a feature vector defining inputs along with a
 set of features outputting from an MLSL lying underneath
+
+
+Authors:
+  Rakshit Agrawal
+  Luca de Alfaro
+  Vassilis Polychronopoulos
+Copyright by the authors, 2016.
 """
 from json_plus import Serializable
-from mlsl import MLSL
+from multi_level_lstm import MLSL
 from dnn import DNN
 import numpy as np
 

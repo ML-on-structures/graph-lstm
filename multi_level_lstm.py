@@ -1,3 +1,15 @@
+"""
+Implementation of Multi-Level Sequence Learners using LSTMs.
+See https://sites.google.com/view/ml-on-structures for overall project page, and papers
+that describe these learners.
+
+Authors:
+  Rakshit Agrawal
+  Luca de Alfaro
+  Vassilis Polychronopoulos
+Copyright by the authors, 2016.
+"""
+
 import lstm
 import numpy as np
 import random

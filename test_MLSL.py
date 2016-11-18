@@ -1,4 +1,6 @@
-import bipartite_user_item_reviews as bp
+# This code is useful for testing the MLSL package.
+
+import test_bipartite_user_item_reviews as bp
 import mlsl as ml
 import random
 import numpy as np
@@ -223,7 +225,7 @@ def get_balanced_training_set(training_set, no_of_classes):
                 buckets_current_indexes[i] = 0
             yield buckets[i][buckets_current_indexes[i]]
             buckets_current_indexes[i] += 1
-            
+
 
 class SimpleLearningTest(unittest.TestCase):
 
