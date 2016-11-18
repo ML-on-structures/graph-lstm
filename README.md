@@ -9,13 +9,14 @@ The approach is based on a multi-level architecture built from Long Short-Term M
 
 ## How it works
 
-The code performs predictions for one ``target'' graph node at a time. 
+The code performs predictions for one target graph node at a time. 
 First, the graph is unfolded from the target node, yielding a tree with the target node as its root at level 0, its neighbors as level-1 children, its neighbors' neighbors as level-2 children, and so forth, up to a desired depth D.
 At each tree node v of level 0 <= d < D, a level-d+1 LSTM is fed sequentially the information from the children of v at level d+1, and produces as output information for v itself. 
 Thus, we exploit LSTMs' ability to process sequences of any length to process trees of any branching factor.
-The top-level LSTM produces the desired prediction for the target node. 
+The top-level LSTM produces an output vector y that summarizes the tree rooted at v.
+This output vector can then be combined with the features of v itself, for instance via a standard neural net, to yield the desired prediction for the target node. 
 The architecture requires training D LSTMs, one per tree level.
-The LSTMs learn how to summarize the neighborhood up to radius $D$ on the basis of data, avoiding the manual task of synthesizing a fixed set of features.
+The LSTMs learn how to summarize the neighborhood up to radius D on the basis of data, avoiding the manual task of synthesizing a fixed set of features.
 By dedicating one LSTM to each level, we can tailor the learning (and the LSTM size) to the distance from the target node.
 
 ## Code included
