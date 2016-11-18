@@ -1,7 +1,7 @@
 # Graph-LSTM
 
 This repository contains several pieces of code that are useful for applying machine learning to graphs. 
-See [project page](https://sites.google.com/view/ml-on-structures) for the overall project, papers, and data. 
+See the [project page](https://sites.google.com/view/ml-on-structures) for the overall project, papers, and data. 
 
 Many prediction problems can be phrased as inferences over local neighborhoods of graphs.  The graph represents the interaction between entities, and the neighborhood of each entity contains information that allows the inferences or predictions. 
 This project enables the application of machine learning directly to such graph neighborhoods, allowing predictions to be learned from examples, bypassing the step of creating and tuning an inference model or summarizing the neighborhoods via a fixed set of hand-crafted features.
