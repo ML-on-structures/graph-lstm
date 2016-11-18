@@ -2,7 +2,6 @@ import lstm
 import numpy as np
 import random
 from json_plus import Serializable, Storage
-import unittest
 
 class UnknownLearningMethod(Exception):
     def __init__(self, s):
@@ -45,13 +44,13 @@ class MLSL(Serializable):
         # First, some sanity checks.
         assert max_depth > 0
         assert len(output_sizes) == max_depth
-        assert len(node_feature_sizes) == max_depth + 1
+        assert len(node_feature_sizes) == max_depth
         assert len(learning_method_vector) == max_depth
         assert adadelta_parameters is None or len(adadelta_parameters) == max_depth
         assert adadelta_parameters is not None or all(m != 'adadelta' for m in learning_method_vector)
         assert momentum_vector is None or len(momentum_vector) == max_depth
-        assert momentum_vector is not None or all(m != 'steady_rate' for m in learning_method_vector)
-        assert [i < max_depth for i in shuffle_levels]
+        assert momentum_vector is not None or all(m == 'steady_rate' for m in learning_method_vector)
+        #assert [i < max_depth for i in shuffle_levels]
 
         self.output_sizes = output_sizes
         self.node_feature_sizes = node_feature_sizes
@@ -66,7 +65,7 @@ class MLSL(Serializable):
         self.lstm_stack = [lstm.LSTM() for _ in range(max_depth)]
         for l in range(max_depth):
             self.lstm_stack[l].initialize(
-                node_feature_sizes[l + 1] + (0 if l == max_depth - 1 else output_sizes[l + 1]),
+                node_feature_sizes[l] + (0 if l == max_depth - 1 else output_sizes[l + 1]),
                 output_sizes[l])
 
         # we need the following structures, when training with momentum and/or adadelta,
@@ -97,10 +96,10 @@ class MLSL(Serializable):
             random.shuffle(children_sequence)
         for child_node in children_sequence:
             child_node_feature_vector = child_node.get_feature_vector()
-            assert len(child_node_feature_vector) == self.node_feature_sizes[instance_depth + 1]
+            assert len(child_node_feature_vector) == self.node_feature_sizes[instance_depth]
             # If we are not at the very bottom we need to get input from LSTM at the next level.
             LSTM_output_from_below = np.array([])
-            if instance_depth < self.max_depth:
+            if instance_depth < self.max_depth - 1:
                  LSTM_output_from_below = self.forward_propagation(child_node, instance_depth=instance_depth + 1).reshape(
                      self.output_sizes[instance_depth + 1]) # recursive call
             # concatenate feature vector and input from LSTM output below
@@ -151,7 +150,7 @@ class MLSL(Serializable):
         if instance_depth == self.max_depth:
             return
         for idx, item in enumerate(instance_node.children_sequence):
-            if item.cache is None:
+            if item.cache == {}:
                 continue
             input_derivatives = dX[idx, :, 0:self.output_sizes[instance_depth + 1]]
             if instance_depth < self.max_depth:
@@ -176,7 +175,7 @@ class MLSL(Serializable):
         else:
             raise UnknownLearningMethod(method)
         # Then, recurs down the tree.
-        if current_depth == self.max_depth:
+        if current_depth == self.max_depth - 1:
             return
         for item in instance_node.children_sequence:
             self._compute_LSTM_updates(item, current_depth + 1)
@@ -280,63 +279,3 @@ class InstanceNode(Serializable):
 
     def get_feature_vector(self):
         return self.feature_vector
-
-
-class SimpleLearningTest(unittest.TestCase):
-
-    # FIXME: Move this to a unit test?
-    def test_model(self, test_set):
-        guesses = 0
-        hits = 0
-        found = {}
-        missed = {}
-        misclassified = {}
-        for item in test_set:
-            Y = self.forward_propagation(item)
-            if Y is None:
-                continue
-            print Y
-            predicted_label = Y.argmax()
-            real_label = item.get_label()
-            print "Predicted label ", predicted_label , " real label", real_label
-            guesses += 1
-            hits += 1 if predicted_label == real_label else 0
-            if predicted_label == real_label:
-                if real_label not in found:
-                    found[real_label] = 1
-                else:
-                    found[real_label] += 1
-            if predicted_label != real_label:
-                if real_label not in missed:
-                    missed[real_label] = 1
-                else:
-                    missed[real_label] += 1
-                if predicted_label not in misclassified:
-                    misclassified[predicted_label] = 1
-                else:
-                    misclassified[predicted_label] += 1
-        print "LSTM results"
-        print "============================================================="
-        print "Predicted correctly ", hits , "over ", guesses, " instances."
-        recall_list = []
-        recall_dict = {}
-        precision_dict = {}
-        found_labels = set(found.keys())
-        missed_labels = set(missed.keys())
-        all_labels = found_labels.union(missed_labels)
-        for label in all_labels:
-            no_of_finds = float((0 if label not in found else found[label]))
-            no_of_missed = float((0 if label not in missed else missed[label]))
-            no_of_misclassified = float((0 if label not in misclassified else misclassified[label]))
-            recall =  no_of_finds / (no_of_finds + no_of_missed)
-            precision = no_of_finds / (no_of_finds + no_of_misclassified)
-            recall_dict[label] = recall
-            precision_dict[label] = precision
-            recall_list.append(recall)
-        avg_recall = np.mean(recall_list)
-        print "Average recall ", np.mean(recall_list)
-        if len(all_labels) == 2: # compute F-1 score for binary classification
-            for label in all_labels:
-                print "F-1 score for label ", label, " is : ",
-                print 2 * (precision_dict[label] * recall_dict[label]) / (precision_dict[label] + recall_dict[label])
-        return avg_recall
